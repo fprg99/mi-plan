@@ -1454,6 +1454,7 @@
           if(!Array.isArray(d.reservas)) d.reservas=clon(BASE.reservas);
           if(!Array.isArray(d.ahorros))  d.ahorros=clon(BASE.ahorros);
           if(typeof d.aporteCard!=='object'||!d.aporteCard) d.aporteCard=clon(BASE.aporteCard);
+          if(!d.aporte || d.aporte<=0) d.aporte=BASE.aporte;
           if(typeof d.ciclo!=='object'||!d.ciclo) d.ciclo=clon(BASE.ciclo);
           if(typeof d.ing!=='object') d.ing=clon(BASE.ing);
           st=d;
@@ -1597,6 +1598,7 @@
         if(typeof d.deudas!=='object'||!d.deudas) d.deudas=clon(BASE.deudas);
         Object.keys(BASE.deudas).forEach(function(k){ if(d.deudas[k]===undefined||d.deudas[k]===null) d.deudas[k]=BASE.deudas[k]; });
         if(typeof d.aporteCard!=='object'||!d.aporteCard) d.aporteCard=clon(BASE.aporteCard);
+        if(!d.aporte || d.aporte<=0) d.aporte=BASE.aporte;
         if(typeof d.ing!=='object'||!d.ing) d.ing=clon(BASE.ing);
         if(!Array.isArray(d.grupos)||!d.grupos.length) d.grupos=clon(BASE.grupos);
         if(!Array.isArray(d.ahorros)) d.ahorros=clon(BASE.ahorros);
