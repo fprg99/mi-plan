@@ -1419,24 +1419,27 @@
     b.textContent=t; b.hidden=!t;
     if(t){ clearTimeout(setStatus._t); setStatus._t=setTimeout(function(){ b.hidden=true; },3000); }
   }
-  var avisado=false;
   async function guardar(){
+    var txt=JSON.stringify(st);
     try{
-      if(!window.storage) throw new Error('sin storage');
-      var r=await window.storage.set(KEY, JSON.stringify(st), false);
-      if(!r) throw new Error('rechazado');
+      if(window.storage){ var r=await window.storage.set(KEY, txt, false); if(r){ el('warnSave').hidden=true; return; } }
+    }catch(e){}
+    // GitHub Pages / navegador normal: localStorage
+    try{
+      localStorage.setItem(KEY, txt);
       el('warnSave').hidden=true;
     }catch(e){
       el('warnSave').hidden=false;
-      if(!avisado){ avisado=true; setStatus('Ojo: no se está guardando.'); }
     }
   }
   async function cargar(){
-    if(window.storage){
+    var raw=null;
+    try{ if(window.storage){ var r=await window.storage.get(KEY,false); if(r&&r.value) raw=r.value; } }catch(e){}
+    if(!raw){ try{ raw=localStorage.getItem(KEY); }catch(e){} }
+    if(raw){
       try{
-        var r=await window.storage.get(KEY,false);
-        if(r&&r.value){
-          var d=JSON.parse(r.value);
+        {
+          var d=JSON.parse(raw);
           // completar claves faltantes con la base, para que un guardado viejo no rompa nada
           Object.keys(BASE).forEach(function(k){
             if(d[k]===undefined || d[k]===null) d[k]=clon(BASE[k]);
@@ -1590,6 +1593,16 @@
       try{
         var d=JSON.parse(r.result);
         Object.keys(BASE).forEach(function(k){ if(d[k]===undefined||d[k]===null) d[k]=clon(BASE[k]); });
+        // reparar sub-objetos incompletos (respaldos viejos sin Continental, etc.)
+        if(typeof d.deudas!=='object'||!d.deudas) d.deudas=clon(BASE.deudas);
+        Object.keys(BASE.deudas).forEach(function(k){ if(d.deudas[k]===undefined||d.deudas[k]===null) d.deudas[k]=BASE.deudas[k]; });
+        if(typeof d.aporteCard!=='object'||!d.aporteCard) d.aporteCard=clon(BASE.aporteCard);
+        if(typeof d.ing!=='object'||!d.ing) d.ing=clon(BASE.ing);
+        if(!Array.isArray(d.grupos)||!d.grupos.length) d.grupos=clon(BASE.grupos);
+        if(!Array.isArray(d.ahorros)) d.ahorros=clon(BASE.ahorros);
+        if(!Array.isArray(d.todos)) d.todos=clon(BASE.todos);
+        if(!Array.isArray(d.reservas)) d.reservas=clon(BASE.reservas);
+        if(!Array.isArray(d.movs)) d.movs=[];
         st=d; renderAll(); guardar();
         setStatus('Respaldo restaurado.');
       }catch(e){ setStatus('El archivo no se pudo leer.'); }
