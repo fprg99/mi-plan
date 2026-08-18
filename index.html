@@ -639,9 +639,21 @@
     return (st.todos||[]).reduce(function(s,t){ return s + ((!t.hecho && t.f<lim)?t.monto:0); },0);
   }
   function reservadoAporte(){
-    // aporte a tarjetas de este ciclo que todavía no abonaste: ya está comprometido
-    var abonadoCiclo = (st.movs||[]).reduce(function(s,m){ return s + (m.tipo==='deuda'?m.monto:0); }, 0);
-    return Math.max(0, st.aporte - abonadoCiclo);
+    // El aporte extra a tarjetas del mes. Ya está comprometido para atacar la deuda,
+    // así que no es plata gastable. Solo descontamos los pagos EXTRA a tarjetas que ya
+    // hiciste este ciclo (no las cuotas fijas ni los mínimos: esos se cuentan aparte,
+    // como pendientes). Un pago cuenta como 'del aporte' si NO corresponde a un pendiente tildado.
+    var idsPendientes = {};
+    (st.todos||[]).forEach(function(t){ if(t.src) idsPendientes[t.src]=true; });
+    var abonadoDelAporte = (st.movs||[]).reduce(function(sum,m){
+      if(m.tipo!=='deuda') return sum;
+      // pagos que vinieron de tildar un pendiente (cuota/mínimo) NO son del aporte extra
+      if(m.src) return sum;
+      // solo pagos a tarjetas (no préstamos) cuentan como aporte
+      if(m.cat==='lconti' || m.cat==='lueno') return sum;
+      return sum + m.monto;
+    }, 0);
+    return Math.max(0, st.aporte - abonadoDelAporte);
   }
   function reservado(){ return reservadoPend() + reservadoAporte(); }
   function diasHasta(f){
