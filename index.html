@@ -1501,10 +1501,8 @@
   });
 
   el('aporte').addEventListener('input', function(){
-    st.aporte=+el('aporte').value; el('aporteVal').textContent='Gs. '+gs(st.aporte); renderDeudas();
-    var sobra=ingreso()-cuotasFijas()-st.aporte-totalMetas();
-    el('kSobra').textContent=(sobra<0?'−':'')+gs(Math.abs(sobra));
-    el('kSobra').className='v '+(sobra<0?'bad':'ok');
+    st.aporte=+el('aporte').value; el('aporteVal').textContent='Gs. '+gs(st.aporte);
+    renderAll();
   });
   el('aporte').addEventListener('change', guardar);
   el('recalc').addEventListener('change', function(){ st.recalc=el('recalc').checked; renderAll(); guardar(); });
