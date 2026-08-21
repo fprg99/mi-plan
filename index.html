@@ -25,7 +25,7 @@
     --data:'IBM Plex Mono',ui-monospace,monospace;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bone);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:var(--bone);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;overflow-x:hidden}
   .wrap{max-width:720px;margin:0 auto;padding:0 16px 60px}
   .num{font-family:var(--data);font-variant-numeric:tabular-nums}
   .card{background:var(--paper);border:1px solid var(--rule);border-radius:6px}
@@ -185,6 +185,7 @@
   .foco-box{background:var(--bone);border-radius:6px;padding:10px 12px}
   .foco-k{font-size:11.5px;color:var(--ink-soft);margin-bottom:2px}
   .foco-v{font-family:var(--data);font-size:17px;font-weight:600}
+  .foco-sub2{font-family:var(--body);font-size:10.5px;font-weight:400;color:var(--moss);margin-top:2px}
   .mini-tag{font-family:var(--data);font-size:9px;letter-spacing:.06em;text-transform:uppercase;background:var(--deep);color:var(--on-deep);padding:2px 6px;border-radius:3px;margin-left:6px;vertical-align:1px}
   .drow-foco{border-color:var(--deep)}
   .drow-progress{height:8px;background:#E9EBE4;border-radius:4px;overflow:hidden;margin:11px 0 7px}
@@ -287,6 +288,21 @@
   @media (max-width:560px){
     .rowhead,.erow{grid-template-columns:1fr 86px 86px 28px}
     .kpi .v{font-size:14px}
+    /* deudas: apilar los dos campos en una columna para que entren en pantalla chica */
+    .drow-grid{grid-template-columns:1fr}
+    .foco-grid{grid-template-columns:1fr}
+    .drow-act{grid-template-columns:1fr}
+    .drow-grid input,.drow-act input,.drow-act button{width:100%}
+    /* que nada empuje el ancho */
+    .wrap{overflow-x:hidden}
+    .scroll{max-width:100%}
+  }
+  @media (max-width:420px){
+    .strip{gap:5px}
+    .kpi{padding:7px 8px}
+    .kpi .v{font-size:13px}
+    .kpi .k{font-size:8px}
+    .tab{font-size:12px;padding:9px 3px}
   }
   @media (prefers-reduced-motion:no-preference){
     .bar div,.meter div,.cell{transition:width .22s ease,background .18s ease}
@@ -865,7 +881,7 @@
         renderAll(); guardar();
       });
       var mi=row.querySelector('.todo-inp');
-      if(mi) mi.addEventListener('change', function(){ t.monto=pn(mi.value); renderAll(); guardar(); });
+      if(mi) mi.addEventListener('change', function(){ t.monto=pn(mi.value); if(t.id==='t15') t.editado=true; renderAll(); guardar(); });
       row.querySelector('.kill').addEventListener('click', function(){
         st.todos=st.todos.filter(function(x){return x!==t;}); renderAll(); guardar();
       });
@@ -1066,14 +1082,21 @@
     var foco=el('focoDeuda'); foco.innerHTML='';
     var mObj = objId ? meta[objId] : null;
     if(mObj){
-      var pago = pagoMes[objId]||0;
+      var pagoPlan = pagoMes[objId]||0;
+      // cuánto ya le pagaste a esta deuda este ciclo (movimientos de tipo deuda)
+      var yaPagado = (st.movs||[]).reduce(function(sum,m){ return sum + ((m.tipo==='deuda' && m.cat===objId)?m.monto:0); }, 0);
+      var falta = Math.max(0, pagoPlan - yaPagado);
+      var kFoco = yaPagado>0 ? 'Te falta este mes' : 'Le pagás este mes';
+      var vFoco = yaPagado>0
+        ? gs(falta)+'<div class="foco-sub2">ya pagaste '+gs(yaPagado)+'</div>'
+        : gs(pagoPlan);
       foco.innerHTML=
         '<div class="card foco">'+
           '<div class="foco-tag">Atacando ahora</div>'+
           '<div class="foco-nm">'+mObj.nm+'</div>'+
           '<div class="foco-saldo num">'+gs(saldoDe(mObj))+'</div>'+
           '<div class="foco-grid">'+
-            '<div class="foco-box"><div class="foco-k">Le pagás este mes</div><div class="foco-v num">'+gs(pago)+'</div></div>'+
+            '<div class="foco-box"><div class="foco-k">'+kFoco+'</div><div class="foco-v num">'+vFoco+'</div></div>'+
             '<div class="foco-box"><div class="foco-k">Queda libre en</div><div class="foco-v">'+etiquetaFin(objId)+'</div></div>'+
           '</div>'+
           '<div class="drow-grid" style="margin-top:12px">'+
@@ -1415,7 +1438,44 @@
   }
 
   // ============ RENDER GLOBAL ============
+  function sincronizarAporte(){
+    // OBJETIVO DEL MES: cuánto pagar a la deuda más cara este ciclo (mínimo + extra).
+    // Se calcula UNA sola vez al abrir el ciclo y queda CONGELADO en st.objetivoMes.
+    // Así, cuando pagás y el saldo baja, el objetivo NO se recalcula: solo mostramos
+    // cuánto falta de ese objetivo fijo. Sin esto, cada pago generaba un aporte nuevo.
+    var ap = (st.todos||[]).filter(function(t){ return t.id==='t15'; })[0];
+    if(!ap) return;
+
+    // fijar el objetivo del ciclo si todavía no está fijado
+    if(!st.objetivoMes || !st.objetivoMes.id){
+      try{
+        var sim=simular();
+        var objId=sim.objetivoActual;
+        if(objId){
+          var plan=(sim.cal[0] && sim.cal[0].p[objId]) || 0;
+          st.objetivoMes = { id:objId, monto:plan };
+        }
+      }catch(e){}
+    }
+    if(!st.objetivoMes || !st.objetivoMes.id) return;
+
+    var objId=st.objetivoMes.id;
+    ap.deuda=objId;
+    ap.nm='Aporte extra a '+(nombreDeuda(objId).replace('Tarjeta ','').replace('Préstamo ',''));
+
+    // lo ya pagado a esa deuda este ciclo
+    var yaPag=(st.movs||[]).reduce(function(sum,m){ return sum + ((m.tipo==='deuda' && m.cat===objId)?m.monto:0); }, 0);
+
+    if(ap.editado){ return; } // si lo editaste a mano, respetamos tu monto
+    // el pendiente muestra lo que FALTA del objetivo del mes
+    ap.monto = Math.max(0, st.objetivoMes.monto - yaPag);
+    // si ya cubriste el objetivo, marcarlo hecho para que no moleste
+    if(ap.monto<=0 && !ap.hecho){ ap.hecho=true; }
+    if(ap.monto>0 && ap.hecho && yaPag < st.objetivoMes.monto){ /* sigue pendiente */ }
+  }
+
   function renderAll(){
+    sincronizarAporte();
     renderChips();
     syncDesc();
     renderTodos();
@@ -1587,6 +1647,8 @@
 
   function cerrarCiclo(f){
     archivarMes();
+    (st.todos||[]).forEach(function(t){ if(t.id==='t15'){ t.editado=false; t.hecho=false; } });
+    st.objetivoMes=null;
     st.movs=[];
     var nuevos=[];
     (st.todos||[]).forEach(function(t){
