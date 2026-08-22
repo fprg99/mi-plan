@@ -906,9 +906,8 @@
       row.innerHTML='<input type="checkbox"'+(t.hecho?' checked':'')+' aria-label="Marcar '+t.nm+' como hecho">'+
         '<div class="todo-body"><div class="todo-nm">'+t.nm+'</div>'+
         '<div class="todo-meta"><span class="due '+cls+'">'+etq+'</span>'+(t.nota||'')+'</div></div>'+
-        (t.monto>0
-          ? (t.hecho ? '<div class="todo-amt">'+gs(t.monto)+'</div>'
-             : '<input class="todo-inp" type="text" inputmode="numeric" value="'+fmt.format(t.monto)+'" aria-label="Monto de '+t.nm+'">')
+        (t.monto>0 || !t.hecho
+          ? '<input class="todo-inp" type="text" inputmode="numeric" value="'+fmt.format(t.monto)+'" aria-label="Monto de '+t.nm+'">'
           : '')+
         '<button class="kill" aria-label="Borrar">×</button>';
 
@@ -916,7 +915,21 @@
         tildarPendiente(t.id, e.target.checked);
       });
       var mi=row.querySelector('.todo-inp');
-      if(mi) mi.addEventListener('change', function(){ t.monto=pn(mi.value); if(t.id==='t15') t.editado=true; renderAll(); guardar(); });
+      if(mi) mi.addEventListener('change', function(){
+        var nuevo=pn(mi.value), viejo=t.monto;
+        t.monto=nuevo;
+        if(t.id==='t15') t.editado=true;
+        // si ya estaba tildado, rehacer el pago con el monto corregido
+        if(t.hecho && nuevo!==viejo){
+          var dif=nuevo-viejo; // cuánto más (o menos) se pagó
+          st.saldo=Math.max(0, st.saldo-dif);
+          // actualizar el movimiento existente
+          st.movs.forEach(function(m){ if(m.src===t.id) m.monto=nuevo; });
+          // ajustar la deuda si aplica
+          if(t.deuda) aplicarPagoDeuda(t.deuda, dif, false);
+        }
+        renderAll(); guardar();
+      });
       row.querySelector('.kill').addEventListener('click', function(){
         st.todos=st.todos.filter(function(x){return x!==t;}); renderAll(); guardar();
       });
