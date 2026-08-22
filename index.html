@@ -600,25 +600,25 @@
     ],    deudas:{gnb:0, conti:2685361, ueno:4887929, lconti:7, lueno:37},
     grupos:[
       {id:'fijo', t:'Gastos fijos', n:'Salen todos los meses. No se recortan.', items:[
-        {id:'gym',   nm:'Gimnasio (Cronos)', real:200000, meta:200000, corto:'Gym'},
-        {id:'tenis', nm:'Tenis (Harrison)', real:300000, meta:300000, corto:'Tenis'},
-        {id:'claro', nm:'Celular', real:30000, meta:30000, corto:'Celu'}
+        {id:'gym',   nm:'Gimnasio (Cronos)', meta:200000, corto:'Gym'},
+        {id:'tenis', nm:'Tenis (Harrison)', meta:300000, corto:'Tenis'},
+        {id:'claro', nm:'Celular', meta:30000, corto:'Celu'}
       ]},
       {id:'var', t:'Gastos variables', n:'Acá está toda la plata recortable.', items:[
-        {id:'delivery',nm:'Delivery y restaurantes', real:1074000, meta:600000, corto:'Comida afuera'},
-        {id:'super',   nm:'Supermercado', real:485000, meta:550000, corto:'Súper'},
-        {id:'nafta',   nm:'Combustible', real:574000, meta:480000, corto:'Nafta'},
-        {id:'subs',    nm:'Suscripciones', real:440000, meta:150000, corto:'Subs'},
-        {id:'transf',  nm:'Transferencias a personas', real:860000, meta:400000, corto:'Transfer.'},
-        {id:'viba',    nm:'Viba Group — sin identificar', real:350000, meta:0, corto:'Viba'},
-        {id:'compras', nm:'Compras y tiendas', real:636000, meta:150000, corto:'Compras'},
-        {id:'salud',   nm:'Salud y farmacia', real:140000, meta:140000, corto:'Salud'},
-        {id:'mascota', nm:'Mascota', real:98000, meta:100000, corto:'Mascota'},
-        {id:'otros',   nm:'Otros e imprevistos', real:35000, meta:200000, corto:'Otros'}
+        {id:'delivery',nm:'Delivery y restaurantes', meta:600000, corto:'Comida afuera'},
+        {id:'super',   nm:'Supermercado', meta:550000, corto:'Súper'},
+        {id:'nafta',   nm:'Combustible', meta:480000, corto:'Nafta'},
+        {id:'subs',    nm:'Suscripciones', meta:150000, corto:'Subs'},
+        {id:'transf',  nm:'Transferencias a personas', meta:400000, corto:'Transfer.'},
+        {id:'viba',    nm:'Viba Group — sin identificar', meta:0, corto:'Viba'},
+        {id:'compras', nm:'Compras y tiendas', meta:150000, corto:'Compras'},
+        {id:'salud',   nm:'Salud y farmacia', meta:140000, corto:'Salud'},
+        {id:'mascota', nm:'Mascota', meta:100000, corto:'Mascota'},
+        {id:'otros',   nm:'Otros e imprevistos', meta:200000, corto:'Otros'}
       ]},
       {id:'ahorro', t:'Ahorro', n:'Mientras haya tarjetas abiertas, el fondo rinde más que cualquier inversión.', items:[
-        {id:'fondo',   nm:'Fondo de emergencia', real:0, meta:0, corto:'Fondo'},
-        {id:'trading', nm:'Trading', real:0, meta:0, corto:'Trading'}
+        {id:'fondo',   nm:'Fondo de emergencia', meta:0, corto:'Fondo'},
+        {id:'trading', nm:'Trading', meta:0, corto:'Trading'}
       ]}
     ]
   };
@@ -911,9 +911,18 @@
           : '')+
         '<button class="kill" aria-label="Borrar">×</button>';
 
-      row.querySelector('input[type=checkbox]').addEventListener('change', function(e){
+      var chk=row.querySelector('input[type=checkbox]');
+      chk.addEventListener('change', function(e){
         tildarPendiente(t.id, e.target.checked);
       });
+      // tocar el nombre/cuerpo también alterna el tilde (área grande, fácil en móvil)
+      var cuerpo=row.querySelector('.todo-body');
+      if(cuerpo){
+        cuerpo.style.cursor='pointer';
+        cuerpo.addEventListener('click', function(){
+          tildarPendiente(t.id, !t.hecho);
+        });
+      }
       var mi=row.querySelector('.todo-inp');
       if(mi) mi.addEventListener('change', function(){
         var nuevo=pn(mi.value), viejo=t.monto;
@@ -1092,7 +1101,7 @@
       var nn=ab.querySelector('.nn'), na=ab.querySelector('.na');
       function add(){
         var n=nn.value.trim(); if(!n){ nn.focus(); return; }
-        g.items.push({id:'x'+Date.now(), nm:n, corto:n, real:0, meta:pn(na.value)});
+        g.items.push({id:'x'+Date.now(), nm:n, corto:n, meta:pn(na.value)});
         renderAll(); guardar();
       }
       ab.querySelector('button').addEventListener('click', add);
@@ -1605,6 +1614,8 @@
           // guardados anteriores no tenían el vínculo pendiente↔deuda
           var LINK={t1:'gnb', t4:'conti', t14:'conti', t5:'lconti', t6:'lueno', t7:'ueno'};
           d.todos.forEach(function(t){ if(LINK[t.id] && !t.deuda) t.deuda=LINK[t.id]; });
+          // limpiar el campo 'real' viejo de las categorías (dato de julio que confundía las barras)
+          (d.grupos||[]).forEach(function(g){ (g.items||[]).forEach(function(i){ delete i.real; }); });
           // insertar el pendiente del aporte extra si un guardado viejo no lo tiene
           if(!d.todos.some(function(t){ return t.id==='t15'; })){
             var base15=BASE.todos.filter(function(t){return t.id==='t15';})[0];
