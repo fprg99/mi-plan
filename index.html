@@ -704,9 +704,16 @@
     var cal=[], interes=0, libre=0, MAX=60, m;
     var ordenInicial=null;
 
+    // cuánto ya abonaste este ciclo a cada deuda (para no contarlo de nuevo en el mes 0)
+    var yaAbonado={};
+    (st.movs||[]).forEach(function(mv){ if(mv.tipo==='deuda'){ yaAbonado[mv.cat]=(yaAbonado[mv.cat]||0)+mv.monto; } });
+    var totalYaAbonado=Object.keys(yaAbonado).reduce(function(a,k){return a+yaAbonado[k];},0);
+
     for(m=0;m<MAX;m++){
       var desvio=(st.puente && m<2)?875000:0;
-      var pool=Math.max(0, st.aporte - desvio)+libre;
+      // en el mes 0, el aporte disponible ya fue parcialmente usado con lo que abonaste
+      var aporteMes = m===0 ? Math.max(0, st.aporte - totalYaAbonado) : st.aporte;
+      var pool=Math.max(0, aporteMes - desvio)+libre;
       var f={m:m, p:{}, cierra:[], objetivo:null};
 
       // interés y cargos del mes
@@ -830,6 +837,34 @@
     el('mvSub').textContent = st.movs.length + (st.movs.length===1?' gasto anotado.':' gastos anotados.');
   }
 
+  function tildarPendiente(id, marcar){
+    var t=(st.todos||[]).filter(function(x){ return x.id===id; })[0];
+    if(!t) return;
+    t.hecho=marcar;
+    if(t.monto>0){
+      var d2=new Date(), f2=d2.getDate()+'/'+(d2.getMonth()+1);
+      // siempre limpiar movimientos previos de este pendiente (evita duplicados o restos)
+      var teniaMov = st.movs.some(function(x){ return x.src===t.id; });
+      st.movs=st.movs.filter(function(x){ return x.src!==t.id; });
+      if(marcar){
+        st.saldo=Math.max(0, st.saldo-t.monto);
+        if(t.deuda){
+          aplicarPagoDeuda(t.deuda, t.monto, false);
+          st.movs.push({cat:t.deuda, tipo:'deuda', monto:t.monto, f:f2, src:t.id, d:t.nm});
+        } else {
+          st.movs.push({cat:(t.cat||'otros'), monto:t.monto, f:f2, src:t.id, d:t.nm});
+        }
+      } else {
+        // destildar: devolver el saldo solo si antes había un movimiento aplicado
+        if(teniaMov){
+          st.saldo+=t.monto;
+          if(t.deuda) aplicarPagoDeuda(t.deuda, t.monto, true);
+        }
+      }
+    }
+    renderAll(); guardar();
+  }
+
   function renderTodos(){
     var h=el('todos'); h.innerHTML='';
     var lista=(st.todos||[]).slice().sort(function(a,b){
@@ -860,25 +895,8 @@
           : '')+
         '<button class="kill" aria-label="Borrar">×</button>';
 
-      row.querySelector('input').addEventListener('change', function(e){
-        t.hecho=e.target.checked;
-        if(t.monto>0){
-          var d2=new Date(), f2=d2.getDate()+'/'+(d2.getMonth()+1);
-          if(t.hecho){
-            st.saldo=Math.max(0, st.saldo-t.monto);
-            if(t.deuda){
-              aplicarPagoDeuda(t.deuda, t.monto, false);
-              st.movs.push({cat:t.deuda, tipo:'deuda', monto:t.monto, f:f2, src:t.id, d:t.nm});
-            } else if(t.cat){
-              st.movs.push({cat:t.cat, monto:t.monto, f:f2, src:t.id, d:t.nm});
-            }
-          } else {
-            st.saldo+=t.monto;
-            if(t.deuda) aplicarPagoDeuda(t.deuda, t.monto, true);
-            st.movs=st.movs.filter(function(x){ return x.src!==t.id; });
-          }
-        }
-        renderAll(); guardar();
+      row.querySelector('input[type=checkbox]').addEventListener('change', function(e){
+        tildarPendiente(t.id, e.target.checked);
       });
       var mi=row.querySelector('.todo-inp');
       if(mi) mi.addEventListener('change', function(){ t.monto=pn(mi.value); if(t.id==='t15') t.editado=true; renderAll(); guardar(); });
