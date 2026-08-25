@@ -525,6 +525,7 @@
   </div>
 
   <footer>
+    <div style="font-family:var(--data);font-size:11px;color:var(--moss);font-weight:600;margin-bottom:8px">Versión 2026-08-19 · barras conectadas</div>
     Base: extractos de ueno bank, Banco GNB y Banco Continental al 22/07/2026. Tarjeta Continental según extracto del cierre 26/06/2026. Todo se guarda solo. Herramienta de cálculo sobre tus propios datos, no asesoramiento financiero profesional.
   </footer>
 </div>
@@ -566,12 +567,7 @@
     ],
     extras:[],
     sel:'delivery',
-    movs:[
-      {cat:'gym',     monto:200000, f:'5/7', src:'t8'},
-      {cat:'tenis',   monto:300000, f:'9/7', src:'t9'},
-      {cat:'trading', monto:63638,  f:'23/7', d:'wsfunded'},
-      {cat:'otros',   monto:71800,  f:'23/7', d:''}
-    ],
+    movs:[],
     todos:[
       {id:'t1', nm:'Pagar la tarjeta GNB completa', monto:1801372, f:'2026-07-23', hecho:true, rec:false,
        nota:'Liquidada. Pedí la constancia de cancelación.'},
@@ -595,8 +591,8 @@
        nota:'Pagaste 300.000 el 19/07. Ajustá el monto cuando sepas el mínimo.'},
       {id:'t15', nm:'Aporte extra a Continental', monto:2020000, f:'2026-08-08', hecho:false, rec:true, deuda:'conti',
        nota:'El dinero extra del mes para atacar la más cara. Si no llegás a todo, bajá el monto antes de tildar.'},
-      {id:'t8', nm:'Gimnasio (Cronos)', monto:200000, f:'2026-07-05', hecho:true, rec:true, nota:'', cat:'gym'},
-      {id:'t9', nm:'Tenis (Harrison)', monto:300000, f:'2026-07-09', hecho:true, rec:true, nota:'', cat:'tenis'}
+      {id:'t8', nm:'Gimnasio (Cronos)', monto:200000, f:'2026-08-05', hecho:false, rec:true, nota:'', cat:'gym'},
+      {id:'t9', nm:'Tenis (Harrison)', monto:300000, f:'2026-08-09', hecho:false, rec:true, nota:'', cat:'tenis'}
     ],    deudas:{gnb:0, conti:2685361, ueno:4887929, lconti:7, lueno:37},
     grupos:[
       {id:'fijo', t:'Gastos fijos', n:'Salen todos los meses. No se recortan.', items:[
@@ -622,7 +618,7 @@
       ]}
     ]
   };
-  var clon = function(o){ return JSON.parse(JSON.stringify(o)); };
+  var clon = function(o){ if(o===undefined||o===null) return o; try{ return JSON.parse(JSON.stringify(o)); }catch(e){ return o; } };
   var st = clon(BASE);
 
   var CUOTA_CONTI = 1040645, CUOTA_UENO = 483966;
@@ -665,7 +661,19 @@
   function gastadoPorCat(){
     var m = {};
     todosItems().forEach(function(i){ m[i.id]=0; });
-    st.movs.filter(esGasto).forEach(function(v){ m[v.cat] = (m[v.cat]||0) + v.monto; });
+    // 1) sumar los movimientos de gasto anotados
+    var idsConMov = {};
+    st.movs.filter(esGasto).forEach(function(v){
+      m[v.cat] = (m[v.cat]||0) + v.monto;
+      if(v.src) idsConMov[v.src]=true;
+    });
+    // 2) sumar los pendientes de gasto TILDADOS que no tengan ya su movimiento
+    //    (así la barra refleja el tilde aunque el movimiento se haya perdido)
+    (st.todos||[]).forEach(function(t){
+      if(t.hecho && t.cat && !t.deuda && t.monto>0 && !idsConMov[t.id]){
+        m[t.cat] = (m[t.cat]||0) + t.monto;
+      }
+    });
     return m;
   }
   function sumaTipo(t){
@@ -1097,7 +1105,7 @@
       c.appendChild(rh);
       g.items.forEach(function(it){ c.appendChild(filaEditable(it,g)); });
       var ab=document.createElement('div'); ab.className='addbar';
-      ab.innerHTML='<input class="nn" type="text" placeholder="Agregar a '+g.t.toLowerCase()+'" aria-label="Nombre"><input class="na" type="text" inputmode="numeric" placeholder="Meta" aria-label="Monto"><button class="ghost">Agregar</button>';
+      ab.innerHTML='<input class="nn" type="text" placeholder="Agregar a '+((g.t||g.nm||'grupo').toLowerCase())+'" aria-label="Nombre"><input class="na" type="text" inputmode="numeric" placeholder="Meta" aria-label="Monto"><button class="ghost">Agregar</button>';
       var nn=ab.querySelector('.nn'), na=ab.querySelector('.na');
       function add(){
         var n=nn.value.trim(); if(!n){ nn.focus(); return; }
@@ -1585,6 +1593,7 @@
   }
   async function guardar(){
     var txt=JSON.stringify(st);
+    if(txt===undefined || txt==='undefined' || !txt){ return; } // nunca guardar basura
     try{
       if(window.storage){ var r=await window.storage.set(KEY, txt, false); if(r){ el('warnSave').hidden=true; return; } }
     }catch(e){}
@@ -1600,6 +1609,7 @@
     var raw=null;
     try{ if(window.storage){ var r=await window.storage.get(KEY,false); if(r&&r.value) raw=r.value; } }catch(e){}
     if(!raw){ try{ raw=localStorage.getItem(KEY); }catch(e){} }
+    if(raw==='undefined' || raw==='null' || raw==='') raw=null;
     if(raw){
       try{
         {
@@ -1615,7 +1625,30 @@
           var LINK={t1:'gnb', t4:'conti', t14:'conti', t5:'lconti', t6:'lueno', t7:'ueno'};
           d.todos.forEach(function(t){ if(LINK[t.id] && !t.deuda) t.deuda=LINK[t.id]; });
           // limpiar el campo 'real' viejo de las categorías (dato de julio que confundía las barras)
-          (d.grupos||[]).forEach(function(g){ (g.items||[]).forEach(function(i){ delete i.real; }); });
+          (d.grupos||[]).forEach(function(g){
+          if(!g.t) g.t=g.nm||'Grupo';
+          (g.items||[]).forEach(function(i){ delete i.real; });
+        });
+          // REPARAR inconsistencias pendiente<->movimiento de estados viejos:
+          // si un pendiente está tildado pero no tiene su movimiento, crearlo;
+          // si está destildado pero quedó un movimiento suyo, quitarlo.
+          d.movs = d.movs || [];
+          d.todos.forEach(function(t){
+            if(t.monto>0){
+              var tieneMovSuyo = d.movs.some(function(m){ return m.src===t.id; });
+              if(t.hecho && !tieneMovSuyo){
+                // tildado sin movimiento -> crear el movimiento que falta
+                if(t.deuda){
+                  d.movs.push({cat:t.deuda, tipo:'deuda', monto:t.monto, f:t.f||'', src:t.id, d:t.nm});
+                } else {
+                  d.movs.push({cat:(t.cat||'otros'), monto:t.monto, f:t.f||'', src:t.id, d:t.nm});
+                }
+              } else if(!t.hecho && tieneMovSuyo){
+                // destildado con movimiento colgado -> limpiarlo
+                d.movs = d.movs.filter(function(m){ return m.src!==t.id; });
+              }
+            }
+          });
           // insertar el pendiente del aporte extra si un guardado viejo no lo tiene
           if(!d.todos.some(function(t){ return t.id==='t15'; })){
             var base15=BASE.todos.filter(function(t){return t.id==='t15';})[0];
@@ -1623,7 +1656,6 @@
           }
           if(!Array.isArray(d.movs))  d.movs=[];
           if(!Array.isArray(d.extras)) d.extras=[];
-          if(!Array.isArray(d.reservas)) d.reservas=clon(BASE.reservas);
           if(!Array.isArray(d.ahorros))  d.ahorros=clon(BASE.ahorros);
           if(typeof d.aporteCard!=='object'||!d.aporteCard) d.aporteCard=clon(BASE.aporteCard);
           if(!d.aporte || d.aporte<=0) d.aporte=BASE.aporte;
@@ -1800,8 +1832,26 @@
           var b15=BASE.todos.filter(function(t){return t.id==='t15';})[0];
           if(b15) d.todos.push(clon(b15));
         }
-        if(!Array.isArray(d.reservas)) d.reservas=clon(BASE.reservas);
         if(!Array.isArray(d.movs)) d.movs=[];
+        if(!Array.isArray(d.extras)) d.extras=[];
+        if(!Array.isArray(d.hist)) d.hist=[];
+        // limpiar el campo 'real' viejo de las categorías (dato que confundía las barras)
+        (d.grupos||[]).forEach(function(g){ (g.items||[]).forEach(function(i){ delete i.real; }); });
+        // vincular pendientes con su deuda si falta
+        var LINKimp={t1:'gnb', t4:'conti', t14:'conti', t5:'lconti', t6:'lueno', t7:'ueno'};
+        d.todos.forEach(function(t){ if(LINKimp[t.id] && !t.deuda) t.deuda=LINKimp[t.id]; });
+        // reparar consistencia pendiente<->movimiento
+        d.todos.forEach(function(t){
+          if(t.monto>0){
+            var tieneMov=d.movs.some(function(m){ return m.src===t.id; });
+            if(t.hecho && !tieneMov){
+              if(t.deuda) d.movs.push({cat:t.deuda, tipo:'deuda', monto:t.monto, f:t.f||'', src:t.id, d:t.nm});
+              else d.movs.push({cat:(t.cat||'otros'), monto:t.monto, f:t.f||'', src:t.id, d:t.nm});
+            } else if(!t.hecho && tieneMov){
+              d.movs=d.movs.filter(function(m){ return m.src!==t.id; });
+            }
+          }
+        });
         st=d; renderAll(); guardar();
         setStatus('Respaldo restaurado.');
       }catch(e){ setStatus('El archivo no se pudo leer.'); }
