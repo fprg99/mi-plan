@@ -1084,7 +1084,7 @@
     } else if(peor){
       cls='bad'; t=peor.nm+' se pasó';
       b='<p>Vas '+gs(ex)+' por encima de los '+gs(peor.meta)+' que te pusiste. Eso sale de otra categoría o del aporte a tarjetas.</p><p>'+
-        (peor.id==='delivery'?'Cortá delivery el resto del mes: en julio fueron 1.274.000, es tu palanca más grande.'
+        (peor.id==='delivery'?'Cortá delivery el resto del mes: suele ser tu gasto más grande, es tu palanca principal.'
         :peor.id==='transf'?'Revisá qué transferencias son compromisos reales y cuáles podés postergar.'
         :peor.id==='compras'?'Compras es lo más fácil de congelar: nada que no se rompa hasta noviembre.'
         :'Compensá bajando delivery, que es donde más margen tenés.')+'</p>';
@@ -1164,7 +1164,7 @@
       var p=document.createElement('p'); p.className='sub-t'; p.style.margin='0 0 8px'; p.textContent=g.n; gh.appendChild(p);
       var c=document.createElement('div'); c.className='card';
       var rh=document.createElement('div'); rh.className='rowhead';
-      rh.innerHTML='<span>Categoría</span><span>Julio real</span><span>Meta</span><span></span>';
+      rh.innerHTML='<span>Categoría</span><span>'+mesRefCap()+' real</span><span>Meta</span><span></span>';
       c.appendChild(rh);
       g.items.forEach(function(it){ c.appendChild(filaEditable(it,g)); });
       var ab=document.createElement('div'); ab.className='addbar';
