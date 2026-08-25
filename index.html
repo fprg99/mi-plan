@@ -658,6 +658,69 @@
     return Math.max(0, (i.usd - i.fee*Math.max(1,i.retiros)) * i.tc + i.extra);
   }
   function esGasto(v){ return v.tipo!=='deuda' && v.tipo!=='ahorro'; }
+  // Saneamiento completo de datos cargados o restaurados. Corrige categorías,
+  // reubica gastos mal puestos en 'otros', y elimina movimientos duplicados.
+  function sanearDatos(d){
+    d.movs = Array.isArray(d.movs) ? d.movs : [];
+    d.todos = Array.isArray(d.todos) ? d.todos : [];
+    // 1) devolver categoría a pendientes que la perdieron
+    var CATFIX = {t8:'gym', t9:'tenis', t12:'mascota'};
+    d.todos.forEach(function(t){ if(CATFIX[t.id] && !t.cat) t.cat=CATFIX[t.id]; });
+    // 2) corregir movimientos con src cuya cat no coincide con la del pendiente
+    d.movs.forEach(function(m){ if(m.src && CATFIX[m.src] && m.cat!==CATFIX[m.src]){ m.cat=CATFIX[m.src]; } });
+    // 3) reubicar movimientos en 'otros' cuyo texto coincide con una categoría real
+    var mapaNom = {};
+    (d.grupos||[]).forEach(function(g){ (g.items||[]).forEach(function(i){
+      if(i.nm) mapaNom[i.nm.toLowerCase()] = i.id;
+      if(i.corto) mapaNom[i.corto.toLowerCase()] = i.id;
+    }); });
+    d.movs.forEach(function(m){
+      if((m.cat==='otros' || !m.cat) && m.d){
+        var clave=m.d.toLowerCase().trim();
+        for(var nom in mapaNom){
+          if(nom && nom!=='otros' && (clave===nom || clave.indexOf(nom)===0)){ m.cat=mapaNom[nom]; break; }
+        }
+      }
+    });
+    // 4) eliminar movimientos DUPLICADOS (misma cat + monto + fecha + detalle)
+    var vistos={}, limpios=[];
+    d.movs.forEach(function(m){
+      var clave=(m.cat||'')+'|'+m.monto+'|'+(m.f||'')+'|'+(m.d||'')+'|'+(m.src||'');
+      if(!vistos[clave]){ vistos[clave]=true; limpios.push(m); }
+    });
+    d.movs = limpios;
+    // 5) quitar gastos ANOTADOS a mano que duplican un pendiente de gasto ya tildado.
+    //    Si el pendiente Tenis está tildado, ya aporta su monto; los gastos sueltos con
+    //    el mismo nombre y monto son registros redundantes de ese mismo pago.
+    d.todos.forEach(function(t){
+      if(t.hecho && t.cat && !t.deuda && t.monto>0){
+        var nombreLc=(t.nm||'').toLowerCase();
+        d.movs = d.movs.filter(function(m){
+          // conservar el movimiento propio del pendiente (src) y los que no coincidan
+          if(m.src===t.id) return true;
+          var esDelMismo = m.cat===t.cat && Math.abs(m.monto-t.monto)<1;
+          var textoCoincide = m.d && m.d.toLowerCase().indexOf(nombreLc.split(' ')[0])===0;
+          // quitar solo si NO tiene src (fue anotado a mano) y coincide en categoría+monto
+          if(!m.src && esDelMismo && textoCoincide) return false;
+          return true;
+        });
+      }
+    });
+    // 6) reparar consistencia pendiente<->movimiento
+    d.todos.forEach(function(t){
+      if(t.monto>0){
+        var tieneMov=d.movs.some(function(m){ return m.src===t.id; });
+        if(t.hecho && !tieneMov){
+          if(t.deuda) d.movs.push({cat:t.deuda, tipo:'deuda', monto:t.monto, f:t.f||'', src:t.id, d:t.nm});
+          else d.movs.push({cat:(t.cat||'otros'), monto:t.monto, f:t.f||'', src:t.id, d:t.nm});
+        } else if(!t.hecho && tieneMov){
+          d.movs=d.movs.filter(function(m){ return m.src!==t.id; });
+        }
+      }
+    });
+    return d;
+  }
+
   function gastadoPorCat(){
     var m = {};
     todosItems().forEach(function(i){ m[i.id]=0; });
@@ -1629,6 +1692,24 @@
           if(!g.t) g.t=g.nm||'Grupo';
           (g.items||[]).forEach(function(i){ delete i.real; });
         });
+          // reubicar movimientos mal puestos en 'otros' cuyo texto coincide con una categoría real
+          //  (ej: gasto de Tenis anotado como 'otros' con detalle 'Tenis (Harrison)')
+          var mapaNom = {};
+          (d.grupos||[]).forEach(function(g){ (g.items||[]).forEach(function(i){
+            if(i.nm) mapaNom[i.nm.toLowerCase()] = i.id;
+            if(i.corto) mapaNom[i.corto.toLowerCase()] = i.id;
+          }); });
+          (d.movs||[]).forEach(function(m){
+            if((m.cat==='otros' || !m.cat) && m.d){
+              var clave = m.d.toLowerCase().trim();
+              // coincidencia exacta o si el detalle empieza con el nombre de la categoría
+              for(var nom in mapaNom){
+                if(nom && nom!=='otros' && (clave===nom || clave.indexOf(nom)===0)){
+                  m.cat = mapaNom[nom]; break;
+                }
+              }
+            }
+          });
           // reparar la CATEGORÍA de pendientes de gasto que la perdieron (estados viejos)
           var CATFIX = {t8:'gym', t9:'tenis', t12:'mascota'};
           d.todos.forEach(function(t){
@@ -1844,29 +1925,15 @@
         if(!Array.isArray(d.movs)) d.movs=[];
         if(!Array.isArray(d.extras)) d.extras=[];
         if(!Array.isArray(d.hist)) d.hist=[];
-        // limpiar el campo 'real' viejo de las categorías (dato que confundía las barras)
-        (d.grupos||[]).forEach(function(g){ (g.items||[]).forEach(function(i){ delete i.real; }); });
+        // limpiar el campo 'real' viejo de las categorías
+        (d.grupos||[]).forEach(function(g){ if(!g.t) g.t=g.nm||'Grupo'; (g.items||[]).forEach(function(i){ delete i.real; }); });
         // vincular pendientes con su deuda si falta
         var LINKimp={t1:'gnb', t4:'conti', t14:'conti', t5:'lconti', t6:'lueno', t7:'ueno'};
         d.todos.forEach(function(t){ if(LINKimp[t.id] && !t.deuda) t.deuda=LINKimp[t.id]; });
-        // reparar categoría de pendientes que la perdieron
-        var CATFIXi = {t8:'gym', t9:'tenis', t12:'mascota'};
-        d.todos.forEach(function(t){ if(CATFIXi[t.id] && !t.cat) t.cat=CATFIXi[t.id]; });
-        (d.movs||[]).forEach(function(m){ if(m.src && CATFIXi[m.src] && m.cat!==CATFIXi[m.src]){ m.cat=CATFIXi[m.src]; } });
-        // reparar consistencia pendiente<->movimiento
-        d.todos.forEach(function(t){
-          if(t.monto>0){
-            var tieneMov=d.movs.some(function(m){ return m.src===t.id; });
-            if(t.hecho && !tieneMov){
-              if(t.deuda) d.movs.push({cat:t.deuda, tipo:'deuda', monto:t.monto, f:t.f||'', src:t.id, d:t.nm});
-              else d.movs.push({cat:(t.cat||'otros'), monto:t.monto, f:t.f||'', src:t.id, d:t.nm});
-            } else if(!t.hecho && tieneMov){
-              d.movs=d.movs.filter(function(m){ return m.src!==t.id; });
-            }
-          }
-        });
+        // saneamiento completo: categorías, reubicación y deduplicación
+        d = sanearDatos(d);
         st=d; renderAll(); guardar();
-        setStatus('Respaldo restaurado.');
+        setStatus('Respaldo restaurado y ordenado.');
       }catch(e){ setStatus('El archivo no se pudo leer.'); }
     };
     r.readAsText(file);
