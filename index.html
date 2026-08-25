@@ -1629,6 +1629,15 @@
           if(!g.t) g.t=g.nm||'Grupo';
           (g.items||[]).forEach(function(i){ delete i.real; });
         });
+          // reparar la CATEGORÍA de pendientes de gasto que la perdieron (estados viejos)
+          var CATFIX = {t8:'gym', t9:'tenis', t12:'mascota'};
+          d.todos.forEach(function(t){
+            if(CATFIX[t.id] && !t.cat) t.cat = CATFIX[t.id];
+          });
+          // corregir movimientos viejos que quedaron con cat 'otros' pero son de un pendiente con cat propia
+          (d.movs||[]).forEach(function(m){
+            if(m.src && CATFIX[m.src] && m.cat!==CATFIX[m.src]){ m.cat = CATFIX[m.src]; }
+          });
           // REPARAR inconsistencias pendiente<->movimiento de estados viejos:
           // si un pendiente está tildado pero no tiene su movimiento, crearlo;
           // si está destildado pero quedó un movimiento suyo, quitarlo.
@@ -1840,6 +1849,10 @@
         // vincular pendientes con su deuda si falta
         var LINKimp={t1:'gnb', t4:'conti', t14:'conti', t5:'lconti', t6:'lueno', t7:'ueno'};
         d.todos.forEach(function(t){ if(LINKimp[t.id] && !t.deuda) t.deuda=LINKimp[t.id]; });
+        // reparar categoría de pendientes que la perdieron
+        var CATFIXi = {t8:'gym', t9:'tenis', t12:'mascota'};
+        d.todos.forEach(function(t){ if(CATFIXi[t.id] && !t.cat) t.cat=CATFIXi[t.id]; });
+        (d.movs||[]).forEach(function(m){ if(m.src && CATFIXi[m.src] && m.cat!==CATFIXi[m.src]){ m.cat=CATFIXi[m.src]; } });
         // reparar consistencia pendiente<->movimiento
         d.todos.forEach(function(t){
           if(t.monto>0){
