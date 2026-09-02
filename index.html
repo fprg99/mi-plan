@@ -377,6 +377,7 @@
       <div class="addbar">
         <input class="nn" id="tNm" type="text" placeholder="Agregar pendiente" aria-label="Nombre del pendiente">
         <input class="na" id="tAmt" type="text" inputmode="numeric" placeholder="Monto" aria-label="Monto">
+        <select class="na" id="tCat" style="width:150px;font-family:var(--body)" aria-label="Categoría"></select>
         <input class="na" id="tFec" type="date" style="width:135px" aria-label="Fecha de vencimiento">
         <button class="ghost" id="tAdd">Agregar</button>
       </div>
@@ -663,6 +664,30 @@
   function sanearDatos(d){
     d.movs = Array.isArray(d.movs) ? d.movs : [];
     d.todos = Array.isArray(d.todos) ? d.todos : [];
+    // limpiar la etiqueta falsa 'impago del ciclo anterior' y fusionar pendientes duplicados
+    // (mismo nombre + misma deuda/cat), quedándose con el de fecha más próxima no tildado
+    d.todos.forEach(function(t){
+      if(t.nota) t.nota = t.nota.replace(/\s*Quedó impago del ciclo anterior\.?/,'').trim();
+    });
+    var porClave={}, todosLimpios=[];
+    d.todos.forEach(function(t){
+      var clave = (t.nm||'')+'|'+(t.deuda||'')+'|'+(t.cat||'');
+      if(!porClave[clave]){ porClave[clave]=t; todosLimpios.push(t); }
+      else {
+        // ya hay uno con esa clave: conservar el no-tildado con fecha más temprana
+        var prev=porClave[clave];
+        // si el previo está tildado y este no, o este vence antes, reemplazar
+        if((prev.hecho && !t.hecho)){ /* mantener prev tildado como histórico? no: preferir pendiente */ }
+        // en duplicados de pagos fijos, nos quedamos con UNO solo (el de fecha menor no tildado)
+        var elegirEste = (!t.hecho && (prev.hecho || (t.f||'')<(prev.f||'')));
+        if(elegirEste){
+          var idx=todosLimpios.indexOf(prev);
+          if(idx>=0) todosLimpios[idx]=t;
+          porClave[clave]=t;
+        }
+      }
+    });
+    d.todos = todosLimpios;
     // 1) devolver categoría a pendientes que la perdieron
     var CATFIX = {t8:'gym', t9:'tenis', t12:'mascota'};
     d.todos.forEach(function(t){ if(CATFIX[t.id] && !t.cat) t.cat=CATFIX[t.id]; });
@@ -1217,14 +1242,15 @@
     var foco=el('focoDeuda'); foco.innerHTML='';
     var mObj = objId ? meta[objId] : null;
     if(mObj){
-      var pagoPlan = pagoMes[objId]||0;
-      // cuánto ya le pagaste a esta deuda este ciclo (movimientos de tipo deuda)
+      // usar el OBJETIVO CONGELADO del mes (no el recálculo de la simulación),
+      // para que 'te falta' sea coherente aunque el saldo haya bajado por pagos
+      var objetivoDelMes = (st.objetivoMes && st.objetivoMes.id===objId) ? st.objetivoMes.monto : (pagoMes[objId]||0);
       var yaPagado = (st.movs||[]).reduce(function(sum,m){ return sum + ((m.tipo==='deuda' && m.cat===objId)?m.monto:0); }, 0);
-      var falta = Math.max(0, pagoPlan - yaPagado);
+      var falta = Math.max(0, objetivoDelMes - yaPagado);
       var kFoco = yaPagado>0 ? 'Te falta este mes' : 'Le pagás este mes';
       var vFoco = yaPagado>0
-        ? gs(falta)+'<div class="foco-sub2">ya pagaste '+gs(yaPagado)+'</div>'
-        : gs(pagoPlan);
+        ? gs(falta)+'<div class="foco-sub2">ya pagaste '+gs(yaPagado)+' de '+gs(objetivoDelMes)+'</div>'
+        : gs(objetivoDelMes);
       foco.innerHTML=
         '<div class="card foco">'+
           '<div class="foco-tag">Atacando ahora</div>'+
@@ -1564,6 +1590,7 @@
           '<span style="font-family:var(--display);font-size:15px;font-weight:600;text-transform:capitalize">'+m.etiqueta+'</span>'+
           '<span class="drow-sub">cerrado '+m.cerrado+'</span></div>'+
         '<div class="hist-grid">'+
+          (m.ingreso!==undefined?'<div><div class="hist-k">Ingresó</div><div class="hist-v num">'+gs(m.ingreso)+'</div></div>':'')+
           '<div><div class="hist-k">Gastaste</div><div class="hist-v num">'+gs(m.gastos)+'</div></div>'+
           '<div><div class="hist-k">Pagaste de deuda</div><div class="hist-v num">'+gs(m.pagosDeuda)+'</div></div>'+
           '<div><div class="hist-k">Ahorraste</div><div class="hist-v num">'+gs(m.ahorro||0)+'</div></div>'+
@@ -1610,6 +1637,7 @@
   }
 
   function renderAll(){
+    poblarCatPendiente();
     sincronizarAporte();
     renderChips();
     syncDesc();
@@ -1752,6 +1780,7 @@
           if(typeof d.ciclo!=='object'||!d.ciclo) d.ciclo=clon(BASE.ciclo);
           if(typeof d.ing!=='object') d.ing=clon(BASE.ing);
           if(!Array.isArray(d.hist)) d.hist=[];
+          d = sanearDatos(d);
           st=d;
         }
       }catch(e){ /* guardado ilegible: seguimos con la base */ }
@@ -1775,14 +1804,29 @@
 
   el('saldo').addEventListener('change', function(){ st.saldo=pn(el('saldo').value); renderAll(); guardar(); });
 
+  function poblarCatPendiente(){
+    var sel=el('tCat'); if(!sel||sel.options.length) return; // solo una vez
+    var html='<option value="">Sin categoría</option>';
+    html+='<optgroup label="Gasto">';
+    todosItems().forEach(function(c){ html+='<option value="cat:'+c.id+'">'+(c.corto||c.nm)+'</option>'; });
+    html+='</optgroup><optgroup label="Deuda">';
+    DEUDAS_META.forEach(function(m){ html+='<option value="deuda:'+m.id+'">'+m.corto+'</option>'; });
+    html+='</optgroup>';
+    sel.innerHTML=html;
+  }
   function addTodo(){
     var n=el('tNm').value.trim(); if(!n){ el('tNm').focus(); return; }
-    st.todos.push({
+    var nuevo={
       id:'t'+Date.now(), nm:n, monto:pn(el('tAmt').value),
       f: el('tFec').value || new Date().toISOString().slice(0,10),
       hecho:false, rec:false, nota:''
-    });
-    el('tNm').value=''; el('tAmt').value=''; el('tFec').value='';
+    };
+    // asignar categoría o deuda según lo elegido
+    var elegido=el('tCat').value;
+    if(elegido.indexOf('cat:')===0) nuevo.cat=elegido.slice(4);
+    else if(elegido.indexOf('deuda:')===0) nuevo.deuda=elegido.slice(6);
+    st.todos.push(nuevo);
+    el('tNm').value=''; el('tAmt').value=''; el('tFec').value=''; el('tCat').value='';
     renderAll(); guardar();
   }
   el('tAdd').addEventListener('click', addTodo);
@@ -1827,6 +1871,7 @@
     st.hist.unshift({
       cerrado: hoy.toISOString().slice(0,10),
       etiqueta: LARGO[hoy.getMonth()]+' '+hoy.getFullYear(),
+      ingreso: ingreso(),
       gastos:gastos, pagosDeuda:pagosDeuda, ahorro:ahorro,
       saldoFinal:st.saldo, deudaTotal:deudaTotal,
       movimientos:(st.movs||[]).length
@@ -1848,14 +1893,12 @@
       }
       if(t.hecho){
         // pago fijo cumplido: vuelve a quedar pendiente el mes que viene
-        t.hecho=false; t.f=sumaMeses(t.f,1); nuevos.push(t);
+        t.hecho=false; t.f=sumaMeses(t.f,1); t.nota=(t.nota||'').replace(/\s*Quedó impago del ciclo anterior\.?/,''); nuevos.push(t);
       } else {
-        // pago fijo que quedó impago: queda vencido y además aparece el del mes nuevo
-        t.rec=false;
-        t.nota=(t.nota?t.nota+' ':'')+'Quedó impago del ciclo anterior.';
-        nuevos.push(t);
-        nuevos.push({id:t.id+'-'+f.slice(5,7), nm:t.nm, monto:t.monto, f:sumaMeses(t.f,1),
-                     hecho:false, rec:true, deuda:t.deuda, cat:t.cat, nota:''});
+        // pago fijo NO tildado al cerrar: NO lo marcamos como impago ni lo duplicamos.
+        // Simplemente avanza al mes nuevo como pendiente (tu flujo es cobrar y después pagar,
+        // así que 'sin tildar' no significa 'atrasado').
+        t.hecho=false; t.f=sumaMeses(t.f,1); nuevos.push(t);
       }
     });
     st.todos=nuevos;
