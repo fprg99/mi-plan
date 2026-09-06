@@ -286,6 +286,12 @@
   .hist-grid{display:grid;grid-template-columns:1fr 1fr;gap:11px}
   .hist-k{font-size:11px;color:var(--ink-soft);margin-bottom:2px}
   .hist-v{font-family:var(--data);font-size:16px;font-weight:600}
+  .hist-ppto{background:var(--bone);border-radius:6px;padding:9px 11px;margin-bottom:8px}
+  .hist-ppto-row{display:flex;justify-content:space-between;font-size:13px;padding:2px 0}
+  .hist-ppto-row .num{font-weight:600}
+  .hist-vs{font-family:var(--display);font-size:14px;font-weight:600;padding:7px 11px;border-radius:6px;background:#E9EBE4;text-align:center}
+  .hist-vs.bad{background:var(--brick-soft);color:#7A2618}
+  .hist-vs.ok{background:var(--moss-soft);color:var(--deep)}
   .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:60;
     background:var(--deep);color:var(--on-deep);font-family:var(--body);font-size:13px;
     padding:10px 18px;border-radius:22px;box-shadow:0 6px 20px -6px rgba(20,48,42,.55);max-width:86vw;text-align:center}
@@ -731,15 +737,74 @@
         });
       }
     });
+    // 5b) inferir la deuda de pendientes de pago de tarjeta/préstamo por su nombre
+    //     (ej: 'Pago tarjeta conti' sin deuda asignada -> deuda:'conti')
+    var NOMBRE_A_DEUDA = [
+      {re:/tarjeta\s*conti|conti\s*tarjeta|pago.*conti/i, id:'conti'},
+      {re:/tarjeta\s*ueno|pago.*ueno/i, id:'ueno'},
+      {re:/gnb/i, id:'gnb'},
+      {re:/pr[eé]stamo\s*conti/i, id:'lconti'},
+      {re:/pr[eé]stamo\s*ueno/i, id:'lueno'}
+    ];
+    d.todos.forEach(function(t){
+      if(!t.deuda && !t.cat && t.nm){
+        for(var k=0;k<NOMBRE_A_DEUDA.length;k++){
+          if(NOMBRE_A_DEUDA[k].re.test(t.nm)){ t.deuda=NOMBRE_A_DEUDA[k].id; break; }
+        }
+      }
+    });
+    // 5c) corregir movimientos que quedaron como gasto en 'otros' pero son pagos de deuda
+    d.movs.forEach(function(m){
+      if((!m.tipo || m.tipo==='gasto') && m.cat==='otros' && m.d){
+        var dl=m.d.toLowerCase();
+        if(dl.indexOf('pago tarjeta')===0 || dl.indexOf('pago a tarjeta')===0 || dl.indexOf('cuota préstamo')===0 || dl.indexOf('cuota prestamo')===0){
+          for(var k=0;k<NOMBRE_A_DEUDA.length;k++){
+            if(NOMBRE_A_DEUDA[k].re.test(m.d)){ m.cat=NOMBRE_A_DEUDA[k].id; m.tipo='deuda'; break; }
+          }
+        }
+      }
+    });
+    // 5d) quitar movimientos de deuda DUPLICADOS (misma deuda + monto), conservando uno
+    var vistoDeuda={}, movLimpios=[];
+    d.movs.forEach(function(m){
+      if(m.tipo==='deuda'){
+        var clave=m.cat+'|'+m.monto;
+        if(vistoDeuda[clave]){ return; } // ya hay un pago igual, descartar duplicado
+        vistoDeuda[clave]=true;
+      }
+      movLimpios.push(m);
+    });
+    d.movs=movLimpios;
     // 6) reparar consistencia pendiente<->movimiento
     d.todos.forEach(function(t){
       if(t.monto>0){
         var tieneMov=d.movs.some(function(m){ return m.src===t.id; });
-        if(t.hecho && !tieneMov){
+        // ademas, si es pago de deuda, ver si ya hay un pago equivalente sin src
+        var yaPagadaDeuda = t.deuda && d.movs.some(function(m){ return m.tipo==='deuda' && m.cat===t.deuda && Math.abs(m.monto-t.monto)<1; });
+        if(t.hecho && !tieneMov && !yaPagadaDeuda){
           if(t.deuda) d.movs.push({cat:t.deuda, tipo:'deuda', monto:t.monto, f:t.f||'', src:t.id, d:t.nm});
           else d.movs.push({cat:(t.cat||'otros'), monto:t.monto, f:t.f||'', src:t.id, d:t.nm});
         } else if(!t.hecho && tieneMov){
           d.movs=d.movs.filter(function(m){ return m.src!==t.id; });
+        }
+      }
+    });
+    // 7) corregir registros de historial mal etiquetados por el bug viejo:
+    //    si la etiqueta del mes coincide con el mes en que se cerró, el mes real
+    //    era el ANTERIOR (se archivaba con el mes de cierre en vez del mes del ciclo).
+    var LARGOm = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    (d.hist||[]).forEach(function(h){
+      if(h.etiqueta && h.cerrado && !h._fix){
+        var mesCierre = new Date(h.cerrado+'T00:00:00').getMonth();
+        var partes = h.etiqueta.toLowerCase().split(' ');
+        var mesEtiqueta = LARGOm.indexOf(partes[0]);
+        var anio = parseInt(partes[1],10) || new Date(h.cerrado+'T00:00:00').getFullYear();
+        if(mesEtiqueta===mesCierre){
+          // estaba mal: correr un mes hacia atrás
+          var nuevoMes = (mesEtiqueta-1+12)%12;
+          var nuevoAnio = mesEtiqueta===0 ? anio-1 : anio;
+          h.etiqueta = LARGOm[nuevoMes]+' '+nuevoAnio;
+          h._fix = true; // marcar para no volver a corregirlo
         }
       }
     });
@@ -1585,13 +1650,24 @@
       return;
     }
     host.innerHTML=h.map(function(m){
+      // comparación presupuesto vs gasto real
+      var tienePpto = m.presupuestado!==undefined && m.presupuestado>0;
+      var dif = tienePpto ? m.gastos - m.presupuestado : 0;
+      var vsPpto = '';
+      if(tienePpto){
+        if(dif>0)      vsPpto='<div class="hist-vs bad">Te pasaste '+gs(dif)+'</div>';
+        else if(dif<0) vsPpto='<div class="hist-vs ok">Te sobró '+gs(-dif)+'</div>';
+        else           vsPpto='<div class="hist-vs">Justo en el presupuesto</div>';
+      }
       return '<div class="card" style="padding:14px 16px;margin-bottom:11px">'+
         '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px">'+
           '<span style="font-family:var(--display);font-size:15px;font-weight:600;text-transform:capitalize">'+m.etiqueta+'</span>'+
           '<span class="drow-sub">cerrado '+m.cerrado+'</span></div>'+
-        '<div class="hist-grid">'+
+        (tienePpto?'<div class="hist-ppto"><div class="hist-ppto-row"><span>Presupuestaste</span><span class="num">'+gs(m.presupuestado)+'</span></div>'+
+          '<div class="hist-ppto-row"><span>Gastaste</span><span class="num">'+gs(m.gastos)+'</span></div></div>'+vsPpto:'')+
+        '<div class="hist-grid" style="margin-top:11px">'+
           (m.ingreso!==undefined?'<div><div class="hist-k">Ingresó</div><div class="hist-v num">'+gs(m.ingreso)+'</div></div>':'')+
-          '<div><div class="hist-k">Gastaste</div><div class="hist-v num">'+gs(m.gastos)+'</div></div>'+
+          (!tienePpto?'<div><div class="hist-k">Gastaste</div><div class="hist-v num">'+gs(m.gastos)+'</div></div>':'')+
           '<div><div class="hist-k">Pagaste de deuda</div><div class="hist-v num">'+gs(m.pagosDeuda)+'</div></div>'+
           '<div><div class="hist-k">Ahorraste</div><div class="hist-v num">'+gs(m.ahorro||0)+'</div></div>'+
           '<div><div class="hist-k">Deuda al cerrar</div><div class="hist-v num">'+gs(m.deudaTotal)+'</div></div>'+
@@ -1624,6 +1700,12 @@
     var objId=st.objetivoMes.id;
     ap.deuda=objId;
     ap.nm='Aporte extra a '+(nombreDeuda(objId).replace('Tarjeta ','').replace('Préstamo ',''));
+    // si la fecha del aporte quedó vieja (mes anterior), moverla a este mes para que no diga 'vencido'
+    var hoyISO=new Date().toISOString().slice(0,10);
+    if(!ap.f || ap.f < hoyISO.slice(0,8)+'01'){
+      var d2=new Date(); d2.setDate(28);
+      ap.f = d2.toISOString().slice(0,10);
+    }
 
     // lo ya pagado a esa deuda este ciclo
     var yaPag=(st.movs||[]).reduce(function(sum,m){ return sum + ((m.tipo==='deuda' && m.cat===objId)?m.monto:0); }, 0);
@@ -1868,10 +1950,20 @@
     var deudaTotal = (st.deudas.conti||0)+(st.deudas.ueno||0)+(st.deudas.gnb||0)
                    + (st.deudas.lconti||0)*CUOTA_CONTI + (st.deudas.lueno||0)*CUOTA_UENO;
     var hoy=new Date();
+    // el mes que se archiva es el del INICIO del ciclo que termina (no el de hoy).
+    // Ej: cerrás a principios de septiembre un ciclo que arrancó el 2 de agosto -> etiqueta 'agosto'.
+    var mesCiclo;
+    if(st.ciclo && st.ciclo.inicio){
+      mesCiclo = new Date(st.ciclo.inicio+'T00:00:00');
+    } else {
+      // sin ciclo: asumir el mes anterior al actual
+      mesCiclo = new Date(); mesCiclo.setMonth(mesCiclo.getMonth()-1);
+    }
     st.hist.unshift({
       cerrado: hoy.toISOString().slice(0,10),
-      etiqueta: LARGO[hoy.getMonth()]+' '+hoy.getFullYear(),
+      etiqueta: LARGO[mesCiclo.getMonth()]+' '+mesCiclo.getFullYear(),
       ingreso: ingreso(),
+      presupuestado: totalMetas(),
       gastos:gastos, pagosDeuda:pagosDeuda, ahorro:ahorro,
       saldoFinal:st.saldo, deudaTotal:deudaTotal,
       movimientos:(st.movs||[]).length
