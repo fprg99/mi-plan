@@ -292,6 +292,8 @@
   .hist-vs{font-family:var(--display);font-size:14px;font-weight:600;padding:7px 11px;border-radius:6px;background:#E9EBE4;text-align:center}
   .hist-vs.bad{background:var(--brick-soft);color:#7A2618}
   .hist-vs.ok{background:var(--moss-soft);color:var(--deep)}
+  .hist-deuda{background:var(--bone);border-radius:6px;padding:9px 11px;margin-top:11px}
+  .hist-deuda .hist-vs{margin-top:7px}
   .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:60;
     background:var(--deep);color:var(--on-deep);font-family:var(--body);font-size:13px;
     padding:10px 18px;border-radius:22px;box-shadow:0 6px 20px -6px rgba(20,48,42,.55);max-width:86vw;text-align:center}
@@ -794,6 +796,15 @@
     //    era el ANTERIOR (se archivaba con el mes de cierre en vez del mes del ciclo).
     var LARGOm = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
     (d.hist||[]).forEach(function(h){
+      // completar registros viejos sin ingreso/presupuesto con los valores conocidos
+      if(h.ingreso===undefined){
+        try{ h.ingreso = (d.ing.usd - d.ing.fee*Math.max(1,d.ing.retiros))*d.ing.tc + (d.ing.extra||0); }catch(e){}
+      }
+      if(h.presupuestado===undefined){
+        var tm=0;
+        (d.grupos||[]).forEach(function(g){ if(g.id!=='ahorro') (g.items||[]).forEach(function(i){ tm+=(i.meta||0); }); });
+        h.presupuestado = tm;
+      }
       if(h.etiqueta && h.cerrado && !h._fix){
         var mesCierre = new Date(h.cerrado+'T00:00:00').getMonth();
         var partes = h.etiqueta.toLowerCase().split(' ');
@@ -1670,8 +1681,20 @@
           (!tienePpto?'<div><div class="hist-k">Gastaste</div><div class="hist-v num">'+gs(m.gastos)+'</div></div>':'')+
           '<div><div class="hist-k">Pagaste de deuda</div><div class="hist-v num">'+gs(m.pagosDeuda)+'</div></div>'+
           '<div><div class="hist-k">Ahorraste</div><div class="hist-v num">'+gs(m.ahorro||0)+'</div></div>'+
-          '<div><div class="hist-k">Deuda al cerrar</div><div class="hist-v num">'+gs(m.deudaTotal)+'</div></div>'+
-        '</div></div>';
+        '</div>'+
+        // bloque de deuda: cómo empezó, cómo cerró, cuánto bajó
+        (m.deudaInicial ?
+          '<div class="hist-deuda"><div class="hist-ppto-row"><span>Deuda al empezar</span><span class="num">'+gs(m.deudaInicial)+'</span></div>'+
+          '<div class="hist-ppto-row"><span>Deuda al cerrar</span><span class="num">'+gs(m.deudaTotal)+'</span></div>'+
+          (function(){ var baj=m.deudaInicial-m.deudaTotal;
+            if(baj>0) return '<div class="hist-vs ok">Bajaste la deuda '+gs(baj)+'</div>';
+            if(baj<0) return '<div class="hist-vs bad">La deuda subió '+gs(-baj)+'</div>';
+            return '<div class="hist-vs">La deuda quedó igual</div>'; })()+
+          '</div>'
+          :
+          '<div class="hist-grid"><div><div class="hist-k">Deuda al cerrar</div><div class="hist-v num">'+gs(m.deudaTotal)+'</div></div></div>'
+        )+
+        '</div>';
     }).join('');
   }
 
@@ -1949,6 +1972,8 @@
     var ahorro = (st.movs||[]).filter(function(v){return v.tipo==='ahorro';}).reduce(function(a,v){return a+v.monto;},0);
     var deudaTotal = (st.deudas.conti||0)+(st.deudas.ueno||0)+(st.deudas.gnb||0)
                    + (st.deudas.lconti||0)*CUOTA_CONTI + (st.deudas.lueno||0)*CUOTA_UENO;
+    // deuda al INICIO del mes = deuda al cerrar del mes anterior (último registro del historial)
+    var deudaInicial = (st.hist && st.hist.length) ? (st.hist[0].deudaTotal||null) : null;
     var hoy=new Date();
     // el mes que se archiva es el del INICIO del ciclo que termina (no el de hoy).
     // Ej: cerrás a principios de septiembre un ciclo que arrancó el 2 de agosto -> etiqueta 'agosto'.
@@ -1965,7 +1990,7 @@
       ingreso: ingreso(),
       presupuestado: totalMetas(),
       gastos:gastos, pagosDeuda:pagosDeuda, ahorro:ahorro,
-      saldoFinal:st.saldo, deudaTotal:deudaTotal,
+      saldoFinal:st.saldo, deudaInicial:deudaInicial, deudaTotal:deudaTotal,
       movimientos:(st.movs||[]).length
     });
     if(st.hist.length>60) st.hist=st.hist.slice(0,60);
